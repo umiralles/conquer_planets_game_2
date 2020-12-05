@@ -39,7 +39,7 @@ logic strat gs ai
 data AIState = AIState
   { turn :: Turns
   } deriving Generic
- 
+
 initialState :: AIState
 initialState = AIState
   { turn = 0
@@ -55,7 +55,12 @@ enemyPlanet (Planet (Owned Player2) _ _) = True
 enemyPlanet _                            = False
 
 findEnemyPlanet :: GameState -> Maybe PlanetId
-findEnemyPlanet = undefined
+findEnemyPlanet (GameState ps _ _)
+  | null eps  = Nothing
+  | otherwise = Just (epid)
+    where
+      eps       = M.toList (M.filter enemyPlanet ps)
+      (epid, _) = head eps
 
 send :: WormholeId -> Maybe Ships -> GameState -> [Order]
 send wId mShips st = undefined
@@ -63,7 +68,7 @@ send wId mShips st = undefined
   Wormhole (Source src) _ _ = lookupWormhole wId st
   planet@(Planet _ totalShips _) = lookupPlanet src st
 
-shortestPath :: PlanetId -> PlanetId -> GameState 
+shortestPath :: PlanetId -> PlanetId -> GameState
              -> Maybe (Path (WormholeId, Wormhole))
 shortestPath src dst st
   = case filter ((== dst) . target) (shortestPaths st src) of
@@ -89,19 +94,19 @@ attackFromAll :: PlanetId -> GameState -> [Order]
 attackFromAll targetId gs
   = undefined
 
-zergRush :: GameState -> AIState 
+zergRush :: GameState -> AIState
          -> ([Order], Log, AIState)
 zergRush gs ai = undefined
 
 newtype PageRank = PageRank Double
   deriving (Num, Eq, Ord, Fractional)
- 
+
 type PageRanks pageId = Map pageId PageRank
 
 instance Show PageRank where
   show (PageRank p) = printf "%.4f" p
 
-initPageRanks :: (Graph g e pageId, Ord pageId) 
+initPageRanks :: (Graph g e pageId, Ord pageId)
               => g -> PageRanks pageId
 initPageRanks g = M.fromList [ (p, PageRank (1 / fromIntegral n))
                              | p <- ps ]
@@ -115,9 +120,9 @@ example1 = [("a","b",1), ("a","c",1), ("a","d",1),
 initPageRank' :: Map pageId a -> PageRanks pageId
 initPageRank' = undefined
 
-nextPageRank :: (Ord pageId, Edge e pageId, Graph g e pageId) => 
+nextPageRank :: (Ord pageId, Edge e pageId, Graph g e pageId) =>
   g -> PageRanks pageId -> pageId -> PageRank
-nextPageRank g pr i = (1 - d) / n + d * sum [ pr M.! j / t j 
+nextPageRank g pr i = (1 - d) / n + d * sum [ pr M.! j / t j
                                             | j <- s i ]
  where
   d   = 0.85
@@ -136,7 +141,7 @@ pageRank :: (Ord pageId, Graph g e pageId) =>
   g -> PageRanks pageId
 pageRank g = pageRanks g !! 200
 
-nextPageRank' :: (Ord pageId, Edge e pageId, Graph g e pageId) => 
+nextPageRank' :: (Ord pageId, Edge e pageId, Graph g e pageId) =>
   g -> PageRanks pageId -> PageRank -> pageId -> PageRank -> Maybe PageRank
 nextPageRank' g pr k i pri
   | abs (pri - pri') < k  = Nothing
@@ -157,7 +162,7 @@ nextPageRanks' g k pr = case M.mapAccumWithKey nextPageRank'' True pr of
 pageRanks' :: (Ord pageId, Graph g e pageId)
   => g -> PageRank -> [PageRanks pageId]
 pageRanks' g k = iterateMaybe (nextPageRanks' g k) (initPageRanks g)
- 
+
 iterateMaybe :: (a -> Maybe a) -> a -> [a]
 iterateMaybe f x = x : maybe [] (iterateMaybe f) (f x)
 
@@ -186,9 +191,9 @@ example2 = GameState planets wormholes fleets where
 
 newtype PlanetRank = PlanetRank Double
   deriving (Num, Eq, Ord, Fractional)
- 
+
 type PlanetRanks = Map PlanetId PlanetRank
- 
+
 instance Show PlanetRank where
   show (PlanetRank p) = printf "%.4f" p
 
@@ -200,35 +205,35 @@ initPlanetRanks g = M.fromList [ (p, PlanetRank (1 / fromIntegral n))
 
 planetRank :: GameState -> PlanetRanks
 planetRank g = planetRanks g !! 200
- 
+
 planetRanks :: GameState -> [PlanetRanks]
 planetRanks g = iterate (nextPlanetRanks g) (initPlanetRanks g)
 
 nextPlanetRanks :: GameState -> PlanetRanks -> PlanetRanks
 nextPlanetRanks g pr = M.mapWithKey (const . nextPlanetRank g pr) pr
 
-nextPlanetRank :: GameState -> PlanetRanks 
+nextPlanetRank :: GameState -> PlanetRanks
                -> PlanetId -> PlanetRank
-nextPlanetRank g@(GameState planets _ _) pr i = 
- (1 - d) / n + d * sum [ pr M.! j * growth i / growths j 
+nextPlanetRank g@(GameState planets _ _) pr i =
+ (1 - d) / n + d * sum [ pr M.! j * growth i / growths j
                        | j <- targets i ]
  where
   d   = 0.85
   n   = fromIntegral (length planets)
 
   growth :: PlanetId -> PlanetRank
-  growth i  = (\(Planet _ _ g) -> fromIntegral g) 
+  growth i  = (\(Planet _ _ g) -> fromIntegral g)
                                   (planets M.! i)
   targets :: PlanetId -> [PlanetId]
   targets i = undefined
- 
+
   growths :: PlanetId -> PlanetRank
   growths j = undefined
 
 checkPlanetRanks :: PlanetRanks -> PlanetRank
 checkPlanetRanks = sum . M.elems
 
-planetRankRush :: GameState -> AIState 
+planetRankRush :: GameState -> AIState
                -> ([Order], Log, AIState)
 planetRankRush _ _ = undefined
 
@@ -238,6 +243,6 @@ skynet _ _ = undefined
 
 deriving instance Generic PlanetRank
 deriving instance Generic PageRank
- 
+
 instance NFData PageRank
 instance NFData PlanetRank
