@@ -65,10 +65,14 @@ findEnemyPlanet (GameState ps _ _)
       (epid, _) = head eps
 
 send :: WormholeId -> Maybe Ships -> GameState -> [Order]
-send wId mShips st = undefined
+send wId mShips st
+  | not (ourPlanet planet)                  = []
+  | mShips == Nothing || ships > totalShips = [Order wId totalShips]
+  | otherwise                               = [Order wId ships]
  where
-  Wormhole (Source src) _ _ = lookupWormhole wId st
+  Wormhole (Source src) _ _      = lookupWormhole wId st
   planet@(Planet _ totalShips _) = lookupPlanet src st
+  ships                          = fromJust mShips
 
 shortestPath :: PlanetId -> PlanetId -> GameState
              -> Maybe (Path (WormholeId, Wormhole))
