@@ -59,8 +59,8 @@ enemyPlanet _                            = False
 findEnemyPlanet :: GameState -> Maybe PlanetId
 findEnemyPlanet (GameState ps _ _)
   = case M.toList (M.filter enemyPlanet ps) of
-      [] -> Nothing
-      ((epid, _) : _) -> Just epid
+      []              -> Nothing
+      ((epId, _) : _) -> Just epId
 
 send :: WormholeId -> Maybe Ships -> GameState -> [Order]
 send wId mShips st
@@ -96,7 +96,18 @@ lookupPlanet pId (GameState planets _ _)
 
 attackFromAll :: PlanetId -> GameState -> [Order]
 attackFromAll targetId gs
-  = undefined
+  = catMaybes (map attackFromAll' oPs)
+    where
+      oPs = M.toList (ourPlanets gs)
+
+      attackFromAll' :: (PlanetId, Planet) -> Maybe Order
+      attackFromAll' (pId, Planet _ totalShips _)
+        | isNothing mPath || null ws    = Nothing
+        | otherwise                     = Just (Order wId totalShips)
+          where
+            mPath          = shortestPath pId targetId gs
+            Path _ ws      = fromJust mPath
+            ((wId, _) : _) = ws
 
 zergRush :: GameState -> AIState
          -> ([Order], Log, AIState)
