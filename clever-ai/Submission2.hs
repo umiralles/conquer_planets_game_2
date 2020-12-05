@@ -58,11 +58,9 @@ enemyPlanet _                            = False
 
 findEnemyPlanet :: GameState -> Maybe PlanetId
 findEnemyPlanet (GameState ps _ _)
-  | null eps  = Nothing
-  | otherwise = Just (epid)
-    where
-      eps       = M.toList (M.filter enemyPlanet ps)
-      (epid, _) = head eps
+  = case M.toList (M.filter enemyPlanet ps) of
+      [] -> Nothing
+      ((epid, _) : _) -> Just epid
 
 send :: WormholeId -> Maybe Ships -> GameState -> [Order]
 send wId mShips st
