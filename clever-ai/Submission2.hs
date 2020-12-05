@@ -37,12 +37,14 @@ logic strat gs ai
     in logic' gs ai {turn = turn ai + 1}
 
 data AIState = AIState
-  { turn :: Turns
+  { turn       :: Turns
+  , rushTarget :: Maybe PlanetId
   } deriving Generic
 
 initialState :: AIState
 initialState = AIState
-  { turn = 0
+  { turn       = 0
+  , rushTarget = Nothing
   }
 
 type Log = [String]
