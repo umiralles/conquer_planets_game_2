@@ -39,12 +39,14 @@ logic strat gs ai
 data AIState = AIState
   { turn       :: Turns
   , rushTarget :: Maybe PlanetId
+  , pRanks     :: Maybe PlanetRanks
   } deriving Generic
 
 initialState :: AIState
 initialState = AIState
   { turn       = 0
   , rushTarget = Nothing
+  , pRanks     = Nothing
   }
 
 type Log = [String]
@@ -111,14 +113,14 @@ attackFromAll targetId gs
 
 zergRush :: GameState -> AIState
          -> ([Order], Log, AIState)
-zergRush gs (AIState turns mPId)
+zergRush gs (AIState turns mPId mPRs)
  | mPId == Nothing || ourPlanet p
-    = ([], [], AIState (turns + 1) (findEnemyPlanet gs))
+    = ([], [], AIState (turns + 1) (findEnemyPlanet gs) mPRs)
  | otherwise
-    = (attackFromAll pId gs, [], AIState (turns + 1) mPId)
+    = (attackFromAll pId gs, [], AIState (turns + 1) mPId mPRs)
    where
-     Just pId = mPId
-     p        = lookupPlanet pId gs
+     pId = fromJust mPId
+     p   = lookupPlanet pId gs
 
 newtype PageRank = PageRank Double
   deriving (Num, Eq, Ord, Fractional)
@@ -257,7 +259,7 @@ nextPlanetRank g@(GameState planets _ _) pr i =
   targets = (map target) . (edgesFrom g)
 
   growths :: PlanetId -> PlanetRank
-  growths = foldl (\x pid -> x + ((growth . source) pid)) 0 (edgesTo g j)
+  growths j = foldl (\x pId -> x + ((growth . source) pId)) 0 (edgesTo g j)
 
   --We could have the following, but it was timing out the tests on my vm
   --growths = (foldl (\x -> (x +) . growth . source) 0) . (edgesTo g)
@@ -267,7 +269,33 @@ checkPlanetRanks = sum . M.elems
 
 planetRankRush :: GameState -> AIState
                -> ([Order], Log, AIState)
-planetRankRush _ _ = undefined
+planetRankRush gs (AIState t r Nothing)
+  = planetRankRush gs (AIState t r (Just (planetRank gs)))
+planetRankRush gs (AIState turns mPId mPRs@(Just pRs))
+  | mPId == Nothing || ourPlanet p
+     = ([], [], AIState (turns + 1) (findBestPlanet gs pRs) mPRs)
+  | otherwise
+     = (attackFromAll pId gs, [], AIState (turns + 1) mPId mPRs)
+    where
+      pId = fromJust mPId
+      p   = lookupPlanet pId gs
+
+findBestPlanet :: GameState -> PlanetRanks -> Maybe PlanetId
+findBestPlanet (GameState ps _ _) pRs
+  = case M.toList (M.filter (not . ourPlanet) ps) of
+      []  -> Nothing
+      ps' -> Just (fst (foldl cmpPlanet (-1,-1) ps'))
+    where
+      cmpPlanet :: (PlanetId, PlanetRank) -> (PlanetId, a)
+                -> (PlanetId, PlanetRank)
+      cmpPlanet old@(pId, pR) (pId', _)
+        | isNothing mPR = old
+        | pR' > pR  = (pId', pR')
+        | otherwise = old
+        where
+          mPR = M.lookup pId' pRs
+          pR' = fromJust mPR
+
 
 skynet :: GameState -> AIState
        -> ([Order], Log, AIState)
