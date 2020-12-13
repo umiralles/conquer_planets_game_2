@@ -111,7 +111,14 @@ attackFromAll targetId gs
 
 zergRush :: GameState -> AIState
          -> ([Order], Log, AIState)
-zergRush gs ai = undefined
+zergRush gs (AIState turns mPId)
+ | mPId == Nothing || ourPlanet p
+    = ([], [], AIState (turns + 1) (findEnemyPlanet gs))
+ | otherwise
+    = (attackFromAll pId gs, [], AIState (turns + 1) mPId)
+   where
+     Just pId = mPId
+     p        = lookupPlanet pId gs
 
 newtype PageRank = PageRank Double
   deriving (Num, Eq, Ord, Fractional)
