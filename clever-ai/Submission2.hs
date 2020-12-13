@@ -196,7 +196,8 @@ iterateMaybe f x = x : maybe [] (iterateMaybe f) (f x)
 
 pageRank' :: (Ord pageId, Graph g e pageId) =>
   g -> PageRanks pageId
-pageRank' g = undefined
+pageRank' = last . (take 200) . (flip pageRanks' k) 
+  where k = 0.0001
 
 example2 :: GameState
 example2 = GameState planets wormholes fleets where
