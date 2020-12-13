@@ -96,18 +96,18 @@ lookupPlanet pId (GameState planets _ _)
 
 attackFromAll :: PlanetId -> GameState -> [Order]
 attackFromAll targetId gs
-  = catMaybes (map attackFromAll' oPs)
+  = concatMap attackFromAll' oPs
     where
       oPs = M.toList (ourPlanets gs)
 
-      attackFromAll' :: (PlanetId, Planet) -> Maybe Order
-      attackFromAll' (pId, Planet _ totalShips _)
-        | isNothing mPath || null ws    = Nothing
-        | otherwise                     = Just (Order wId totalShips)
-          where
-            mPath          = shortestPath pId targetId gs
-            Path _ ws      = fromJust mPath
-            ((wId, _) : _) = ws
+      attackFromAll' :: (PlanetId, Planet) -> [Order]
+      attackFromAll' (sourceId, _)
+        | isNothing mPath || null ws = []
+        | otherwise                  = send wId Nothing gs
+        where
+          mPath     = shortestPath sourceId targetId gs
+          Path _ ws = fromJust mPath
+          (wId, _)  = last ws
 
 zergRush :: GameState -> AIState
          -> ([Order], Log, AIState)
