@@ -25,6 +25,8 @@ import qualified Data.Binary as B
 import           GHC.Generics
 import qualified Data.ByteString.Lazy as BL
 import           Data.ByteString.Builder
+-- Added to let Map compile (as recommended on Piazza)
+import           Data.Semigroup
 
 import           Lib
 
@@ -262,7 +264,7 @@ mapToScreen :: (?radius :: Int) => Point -> Point
 mapToScreen (x, y) = ((?radius + x)*2 + 1, ?radius + y + 1)
 
 moveCursor :: Point -> Render ()
-moveCursor (x, y) = 
+moveCursor (x, y) =
   append $ "\ESC[" ++ show y  ++ ";" ++ show x ++ "H"
 
 drawPlanets :: (?radius :: Int) => RenderableMap -> Render ()

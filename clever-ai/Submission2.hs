@@ -139,8 +139,14 @@ example1 :: [(String, String, Integer)]
 example1 = [("a","b",1), ("a","c",1), ("a","d",1),
             ("b","a",1), ("c","a",1), ("d","a",1), ("c","d",1)]
 
+-- Used to test initPageRank'
+exampleInit :: Map Int String
+exampleInit = M.fromList [(0, "a"), (1, "a"), (2, "a"), (3, "a"), (4, "a")]
+
 initPageRank' :: Map pageId a -> PageRanks pageId
-initPageRank' = undefined
+initPageRank' pMap = M.map (const pRank) pMap
+  where
+    pRank = PageRank (1 / fromIntegral (M.size pMap))
 
 nextPageRank :: (Ord pageId, Edge e pageId, Graph g e pageId) =>
   g -> PageRanks pageId -> pageId -> PageRank
