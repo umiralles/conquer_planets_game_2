@@ -102,7 +102,7 @@ attackFromAll targetId gs
 
       attackFromAll' :: (PlanetId, Planet) -> [Order]
       attackFromAll' (sourceId, _)
-        | isNothing mPath || null ws = []
+        | isNothing mPath = []
         | otherwise                  = send wId Nothing gs
         where
           mPath     = shortestPath sourceId targetId gs
@@ -196,7 +196,7 @@ iterateMaybe f x = x : maybe [] (iterateMaybe f) (f x)
 
 pageRank' :: (Ord pageId, Graph g e pageId) =>
   g -> PageRanks pageId
-pageRank' = last . (take 200) . (flip pageRanks' k) 
+pageRank' = last . (take 200) . (flip pageRanks' k)
   where k = 0.0001
 
 example2 :: GameState
@@ -254,10 +254,13 @@ nextPlanetRank g@(GameState planets _ _) pr i =
   growth i  = (\(Planet _ _ g) -> fromIntegral g)
                                   (planets M.! i)
   targets :: PlanetId -> [PlanetId]
-  targets i = undefined
+  targets = (map target) . (edgesFrom g)
 
   growths :: PlanetId -> PlanetRank
-  growths j = undefined
+  growths = foldl (\x pid -> x + ((growth . source) pid)) 0 (edgesTo g j)
+
+  --We could have the following, but it was timing out the tests on my vm
+  --growths = (foldl (\x -> (x +) . growth . source) 0) . (edgesTo g)
 
 checkPlanetRanks :: PlanetRanks -> PlanetRank
 checkPlanetRanks = sum . M.elems
