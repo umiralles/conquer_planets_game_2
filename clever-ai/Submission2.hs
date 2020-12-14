@@ -2,6 +2,7 @@
 {-#  LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-#  LANGUAGE StandaloneDeriving  #-}
 {-#  LANGUAGE DeriveGeneric  #-}
+{-#  LANGUAGE ScopedTypeVariables  #-}
 
 module Submission2 where
 import Lib
@@ -15,6 +16,7 @@ import Data.Maybe
 import Text.Printf
 import Control.DeepSeq
 import GHC.Generics
+import Data.Array
 
 deriving instance (Integral Growth)
 deriving instance (Enum Growth)
@@ -295,35 +297,82 @@ findBestPlanet (GameState ps _ _) pRs
           mPR = M.lookup pId' pRs
           pR' = fromJust mPR
 
+--Get a list of targets and the percentage of ships to send to the target
+skynetTargets :: GameState -> [(WormholeId, Wormhole)] -> PlanetRanks
+              -> [((WormholeId, Wormhole), PlanetRank)]
+skynetTargets gs@(GameState ps _ _) ws pRanks
+--If only friendly neighbours distribute ships based on neighbour value
+  | null ePs = map (\wp -> (wp, pRanks M.! (target wp) / tPR)) ws
+--If there are enemy/neutral neighbours send ships to planets you can conquer
+  | otherwise = map (\wp -> (wp, (fromIntegral (cost wp)) / v)) ts
+  where
+    ePs = filter (\w -> not (ourPlanet (ps M.! (source w)))) ws
+    (Planet _ (Ships s) _) = ps M.! (source (head ws))
+    tPR = foldl (\x wp -> x + pRanks M.! (target wp)) (fromIntegral 0) ws
+
+--Use knapsack to get the maximum value planets you can conquer this turn and attack
+    sack = map (\wp -> (wp, cost wp, pRanks M.! (target wp))) ePs
+    (v, ts) = bknapsack sack s
+
+--Get the cost of a wormhole to take it over this turn
+    cost :: (WormholeId, Wormhole) -> Int
+    cost wp@(wId, Wormhole _ _ (Turns turns))
+      | enemyPlanet p' = s + g * turns
+      | otherwise      = s
+      where
+        p'@(Planet _ (Ships s) (Growth g)) = ps M.! (target wp)
+
+bknapsack :: forall name weight value .
+  (Ix weight, Ord weight, Num weight,
+    Ord value, Num value) =>
+  [(name, weight, value)] -> weight -> (value, [name])
+bknapsack wvs c
+  = table ! (len - 1, c)
+    where
+      len = length wvs
+
+      table :: Array (Int, weight) (value, [name])
+      table = tabulate ((0, 0), (len - 1, c)) bknapHelper
+
+      bknapHelper :: (Int, weight) -> (value, [name])
+      bknapHelper (0, c)
+        | w > c     = (0, [])
+        | otherwise = (v, [n])
+          where
+            (n, w, v) = wvs !! 0
+      bknapHelper (i, c)
+        | w > c         = vn
+        | v + v' >= v'' = (v + v', n : ns')
+        | otherwise     = vn
+          where
+            (n, w, v)   = wvs !! i
+            (v', ns')   = table ! ((i - 1), (c - w))
+            vn@(v'', _) = table ! ((i - 1), c)
+
 skynet :: GameState -> AIState -> ([Order], Log, AIState)
 skynet gs (AIState t rT Nothing pEs)
   = planetRankRush gs (AIState t rT (Just (planetRank gs)) pEs)
 skynet gs ai = foldr sendShips ([], [], ai) ourPs
   where
     ourPs = M.toList(ourPlanets gs)
-
     sendShips :: (PlanetId, Planet) -> ([Order], Log, AIState)
               -> ([Order], Log, AIState)
-    sendShips (pId, p) (ods, lg, cAi@(AIState t rT pRs pEs))
+    sendShips (pId, p) (ods, lg, cAi@(AIState t rT (Just pRs) pEs))
       | isNothing mWs = (nOds ++ ods, lg, nAi)
       | otherwise     = (nOds' ++ ods, lg, cAi)
         where
           mWs   = M.lookup pId pEs
           nWs   = edgesFrom gs pId
-          nOds  = concatMap orderShips (skynetTargets gs nWs)
-          nOds' = concatMap orderShips (skynetTargets gs (fromJust mWs))
-          nAi   = AIState t rT pRs (M.insert pId nWs pEs)
+          nOds  = concatMap orderShips (skynetTargets gs nWs pRs)
+          nOds' = concatMap orderShips (skynetTargets gs (fromJust mWs) pRs)
+          nAi   = AIState t rT (Just pRs) (M.insert pId nWs pEs)
 
-          orderShips :: ((WormholeId, Wormhole), Double) -> [Order]
-          orderShips ((wId, w), pcent)
+          orderShips :: ((WormholeId, Wormhole), PlanetRank) -> [Order]
+          orderShips ((wId, w), PlanetRank pcent)
             = send wId (Just (Ships (floor (pcent * dShips)))) gs
               where
                 Planet _ (Ships ships) _ = p
                 dShips                   = fromIntegral ships
-
-          skynetTargets :: GameState -> [(WormholeId, Wormhole)]
-                        -> [((WormholeId, Wormhole), Double)]
-          skynetTargets = undefined
 
 deriving instance Generic PlanetRank
 deriving instance Generic PageRank
