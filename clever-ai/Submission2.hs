@@ -2,6 +2,7 @@
 {-#  LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-#  LANGUAGE StandaloneDeriving  #-}
 {-#  LANGUAGE DeriveGeneric  #-}
+{-#  LANGUAGE ScopedTypeVariables  #-}
 
 module Submission2 where
 import Lib
@@ -15,6 +16,7 @@ import Data.Maybe
 import Text.Printf
 import Control.DeepSeq
 import GHC.Generics
+import Data.Array
 
 deriving instance (Integral Growth)
 deriving instance (Enum Growth)
@@ -295,6 +297,51 @@ findBestPlanet (GameState ps _ _) pRs
         where
           mPR = M.lookup pId' pRs
           pR' = fromJust mPR
+
+skynetTargets :: GameState -> [(WormholeId, Wormhole)] -> PlanetRanks
+              -> [((WormholeId, Wormhole), PlanetRank)]
+skynetTargets gs@(GameState ps _ _) ws pRanks
+  | null ePs = []
+  | otherwise = map (\wp -> (wp, (fromIntegral (cost wp)) / v)) ts
+  where
+    ePs = filter (\w -> not (ourPlanet (ps M.! (source w)))) ws
+    p@(Planet _ (Ships s) _) = ps M.! (source (head ws))
+    sack = map (\wp -> (wp, cost wp, pRanks M.! (target wp))) ePs
+    (v, ts) = bknapsack sack s
+
+    cost :: (WormholeId, Wormhole) -> Int
+    cost wp@(wId, Wormhole _ _ (Turns turns))
+      | enemyPlanet p' = s + g * turns
+      | otherwise      = s
+      where
+        p'@(Planet _ (Ships s) (Growth g)) = ps M.! (target wp)
+
+bknapsack :: forall name weight value .
+  (Ix weight, Ord weight, Num weight,
+    Ord value, Num value) =>
+  [(name, weight, value)] -> weight -> (value, [name])
+bknapsack wvs c
+  = table ! (len - 1, c)
+    where
+      len = length wvs
+
+      table :: Array (Int, weight) (value, [name])
+      table = tabulate ((0, 0), (len - 1, c)) bknapHelper
+
+      bknapHelper :: (Int, weight) -> (value, [name])
+      bknapHelper (0, c)
+        | w > c     = (0, [])
+        | otherwise = (v, [n])
+          where
+            (n, w, v) = wvs !! 0
+      bknapHelper (i, c)
+        | w > c         = vn
+        | v + v' >= v'' = (v + v', n : ns')
+        | otherwise     = vn
+          where
+            (n, w, v)   = wvs !! i
+            (v', ns')   = table ! ((i - 1), (c - w))
+            vn@(v'', _) = table ! ((i - 1), c)
 
 
 skynet :: GameState -> AIState
