@@ -298,17 +298,24 @@ findBestPlanet (GameState ps _ _) pRs
           mPR = M.lookup pId' pRs
           pR' = fromJust mPR
 
+--Get a list of targets and the percentage of ships to send to the target
 skynetTargets :: GameState -> [(WormholeId, Wormhole)] -> PlanetRanks
               -> [((WormholeId, Wormhole), PlanetRank)]
 skynetTargets gs@(GameState ps _ _) ws pRanks
-  | null ePs = []
+--If only friendly neighbours distribute ships based on neighbour value
+  | null ePs = map (\wp -> (wp, pRanks M.! (target wp) / tPR)) ws
+--If there are enemy/neutral neighbours send ships to planets you can conquer
   | otherwise = map (\wp -> (wp, (fromIntegral (cost wp)) / v)) ts
   where
     ePs = filter (\w -> not (ourPlanet (ps M.! (source w)))) ws
-    p@(Planet _ (Ships s) _) = ps M.! (source (head ws))
+    (Planet _ (Ships s) _) = ps M.! (source (head ws))
+    tPR = foldl (\x wp -> x + pRanks M.! (target wp)) (fromIntegral 0) ws
+
+--Use knapsack to get the maximum value planets you can conquer this turn and attack
     sack = map (\wp -> (wp, cost wp, pRanks M.! (target wp))) ePs
     (v, ts) = bknapsack sack s
 
+--Get the cost of a wormhole to take it over this turn
     cost :: (WormholeId, Wormhole) -> Int
     cost wp@(wId, Wormhole _ _ (Turns turns))
       | enemyPlanet p' = s + g * turns
