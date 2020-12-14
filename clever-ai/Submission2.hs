@@ -298,25 +298,32 @@ findBestPlanet (GameState ps _ _) pRs
 skynet :: GameState -> AIState -> ([Order], Log, AIState)
 skynet gs (AIState t rT Nothing pEs)
   = planetRankRush gs (AIState t rT (Just (planetRank gs)) pEs)
-skynet gs@(GameState ps whs flts) ai@(AIState turns rushTarget pRanks pEdges)
-  = M.foldr sendShips ourPs
-    where
-      ourPs = M.filter ourPlanets ps
+skynet gs ai = foldr sendShips ([], [], ai) ourPs
+  where
+    ourPs = M.toList(ourPlanets gs)
 
-      sendShips :: (PlanetId, Planet) -> ([Order], Log, AIState)
-                -> ([Order], Log, AIState)
-      sendShips (pId, p@(Planet _ ships _)) (ods, lg, st@(AIState t rT pRs pEs))
-        | isNothing mWs = (nOds ++ ods, lg, AIState t rT pRs (insert pId nWs))
-        | otherwise     = (nOds ++ ods, lg, st)
-          where
-            mWs = lookup pId pEs
-            nWs = edgesFrom gs pId
-            pWs = (isNothing mWs) ? nWs : fromJust mWs
-            nOds = concatMap orderShips (skynetTargets gs pWs)
+    sendShips :: (PlanetId, Planet) -> ([Order], Log, AIState)
+              -> ([Order], Log, AIState)
+    sendShips (pId, p) (ods, lg, cAi@(AIState t rT pRs pEs))
+      | isNothing mWs = (nOds ++ ods, lg, nAi)
+      | otherwise     = (nOds' ++ ods, lg, cAi)
+        where
+          mWs   = M.lookup pId pEs
+          nWs   = edgesFrom gs pId
+          nOds  = concatMap orderShips (skynetTargets gs nWs)
+          nOds' = concatMap orderShips (skynetTargets gs (fromJust mWs))
+          nAi   = AIState t rT pRs (M.insert pId nWs pEs)
 
-            orderShips :: ((WormholeId, Wormhole), Double) -> [Order]
-            orderShips ((wId, w), pcent)
-              = send wId (Just (toInteger (pt * shs))) gs
+          orderShips :: ((WormholeId, Wormhole), Double) -> [Order]
+          orderShips ((wId, w), pcent)
+            = send wId (Just (Ships (floor (pcent * dShips)))) gs
+              where
+                Planet _ (Ships ships) _ = p
+                dShips                   = fromIntegral ships
+
+          skynetTargets :: GameState -> [(WormholeId, Wormhole)]
+                        -> [((WormholeId, Wormhole), Double)]
+          skynetTargets = undefined
 
 deriving instance Generic PlanetRank
 deriving instance Generic PageRank
