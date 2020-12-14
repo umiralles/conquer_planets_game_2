@@ -312,12 +312,14 @@ skynetTargets gs@(GameState ps _ _) ws pRanks
 
 --Use knapsack to get the maximum value planets you can conquer this turn and attack
     sack = map (\wp -> (wp, cost wp, pRanks M.! (target wp))) ePs
-    (v, ts) = bknapsack sack s
+    (_, ts) = bknapsack sack (s `div` 2)
+    v = foldl (\x t -> x + fromIntegral (cost t)) (fromIntegral 0) ts
 
 --Get the cost of a wormhole to take it over this turn
     cost :: (WormholeId, Wormhole) -> Int
     cost wp@(wId, Wormhole _ _ (Turns turns))
-      | enemyPlanet p' = s + g * turns
+      | enemyPlanet p' = ((s + g * turns))
+      | ourPlanet p'   = 0
       | otherwise      = s
       where
         p'@(Planet _ (Ships s) (Growth g)) = ps M.! (target wp)
