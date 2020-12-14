@@ -40,6 +40,7 @@ data AIState = AIState
   { turn       :: Turns
   , rushTarget :: Maybe PlanetId
   , pRanks     :: Maybe PlanetRanks
+  , pEdges     :: Map PlanetId [(WormholeId, Wormhole)]
   } deriving Generic
 
 initialState :: AIState
@@ -47,6 +48,7 @@ initialState = AIState
   { turn       = 0
   , rushTarget = Nothing
   , pRanks     = Nothing
+  , pEdges     = M.empty
   }
 
 type Log = [String]
@@ -66,9 +68,9 @@ findEnemyPlanet (GameState ps _ _)
 
 send :: WormholeId -> Maybe Ships -> GameState -> [Order]
 send wId mShips st
-  | not (ourPlanet planet)                  = []
-  | mShips == Nothing || ships > totalShips = [Order wId totalShips]
-  | otherwise                               = [Order wId ships]
+  | not (ourPlanet planet)                 = []
+  | isNothing mShips || ships > totalShips = [Order wId totalShips]
+  | otherwise                              = [Order wId ships]
  where
   Wormhole (Source src) _ _      = lookupWormhole wId st
   planet@(Planet _ totalShips _) = lookupPlanet src st
@@ -113,11 +115,11 @@ attackFromAll targetId gs
 
 zergRush :: GameState -> AIState
          -> ([Order], Log, AIState)
-zergRush gs (AIState turns mPId mPRs)
+zergRush gs (AIState turns mPId mPRs m)
  | mPId == Nothing || ourPlanet p
-    = ([], [], AIState (turns + 1) (findEnemyPlanet gs) mPRs)
+    = ([], [], AIState turns (findEnemyPlanet gs) mPRs m)
  | otherwise
-    = (attackFromAll pId gs, [], AIState (turns + 1) mPId mPRs)
+    = (attackFromAll pId gs, [], AIState turns mPId mPRs m)
    where
      pId = fromJust mPId
      p   = lookupPlanet pId gs
@@ -235,7 +237,7 @@ initPlanetRanks g = M.fromList [ (p, PlanetRank (1 / fromIntegral n))
         n  = length ps
 
 planetRank :: GameState -> PlanetRanks
-planetRank g = planetRanks g !! 200
+planetRank g = planetRanks g !! 100
 
 planetRanks :: GameState -> [PlanetRanks]
 planetRanks g = iterate (nextPlanetRanks g) (initPlanetRanks g)
@@ -259,23 +261,20 @@ nextPlanetRank g@(GameState planets _ _) pr i =
   targets = (map target) . (edgesFrom g)
 
   growths :: PlanetId -> PlanetRank
-  growths j = foldl (\x pId -> x + ((growth . source) pId)) 0 (edgesTo g j)
-
-  --We could have the following, but it was timing out the tests on my vm
-  --growths = (foldl (\x -> (x +) . growth . source) 0) . (edgesTo g)
+  growths = (foldl (\x -> (x +) . growth . source) 0) . (edgesTo g)
 
 checkPlanetRanks :: PlanetRanks -> PlanetRank
 checkPlanetRanks = sum . M.elems
 
 planetRankRush :: GameState -> AIState
                -> ([Order], Log, AIState)
-planetRankRush gs (AIState t r Nothing)
-  = planetRankRush gs (AIState t r (Just (planetRank gs)))
-planetRankRush gs (AIState turns mPId mPRs@(Just pRs))
-  | mPId == Nothing || ourPlanet p
-     = ([], [], AIState (turns + 1) (findBestPlanet gs pRs) mPRs)
+planetRankRush gs (AIState t r Nothing m)
+  = planetRankRush gs (AIState t r (Just (planetRank gs)) m)
+planetRankRush gs (AIState turns mPId mPRs@(Just pRs) m)
+  | isNothing mPId || ourPlanet p
+     = ([], [], AIState turns (findBestPlanet gs pRs) mPRs m)
   | otherwise
-     = (attackFromAll pId gs, [], AIState (turns + 1) mPId mPRs)
+     = (attackFromAll pId gs, [], AIState turns mPId mPRs m)
     where
       pId = fromJust mPId
       p   = lookupPlanet pId gs
@@ -296,10 +295,28 @@ findBestPlanet (GameState ps _ _) pRs
           mPR = M.lookup pId' pRs
           pR' = fromJust mPR
 
+skynet :: GameState -> AIState -> ([Order], Log, AIState)
+skynet gs (AIState t rT Nothing pEs)
+  = planetRankRush gs (AIState t rT (Just (planetRank gs)) pEs)
+skynet gs@(GameState ps whs flts) ai@(AIState turns rushTarget pRanks pEdges)
+  = M.foldr sendShips ourPs
+    where
+      ourPs = M.filter ourPlanets ps
 
-skynet :: GameState -> AIState
-       -> ([Order], Log, AIState)
-skynet _ _ = undefined
+      sendShips :: (PlanetId, Planet) -> ([Order], Log, AIState)
+                -> ([Order], Log, AIState)
+      sendShips (pId, p@(Planet _ ships _)) (ods, lg, st@(AIState t rT pRs pEs))
+        | isNothing mWs = (nOds ++ ods, lg, AIState t rT pRs (insert pId nWs))
+        | otherwise     = (nOds ++ ods, lg, st)
+          where
+            mWs = lookup pId pEs
+            nWs = edgesFrom gs pId
+            pWs = (isNothing mWs) ? nWs : fromJust mWs
+            nOds = concatMap orderShips (skynetTargets gs pWs)
+
+            orderShips :: ((WormholeId, Wormhole), Double) -> [Order]
+            orderShips ((wId, w), pcent)
+              = send wId (Just (toInteger (pt * shs))) gs
 
 deriving instance Generic PlanetRank
 deriving instance Generic PageRank
