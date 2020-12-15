@@ -39,20 +39,22 @@ logic strat gs ai
     in logic' gs ai {turn = turn ai + 1}
 
 data AIState = AIState
-  { turn       :: Turns
-  , rushTarget :: Maybe PlanetId
-  , pRanks     :: Maybe PlanetRanks
-  , pEdges     :: Map PlanetId [(WormholeId, Wormhole)]
-  , pTargets   :: Map PlanetId [((WormholeId, Wormhole), PlanetRank)]
+  { turn        :: Turns
+  , rushTarget  :: Maybe PlanetId
+  , pRanks      :: Maybe PlanetRanks
+  , pEdges      :: Map PlanetId [(WormholeId, Wormhole)]
+  , pTargets    :: Map PlanetId [((WormholeId, Wormhole), PlanetRank)]
+  --, updateTurns :: Turns
   } deriving Generic
 
 initialState :: AIState
 initialState = AIState
-  { turn       = 0
-  , rushTarget = Nothing
-  , pRanks     = Nothing
-  , pEdges     = M.empty
-  , pTargets   = M.empty
+  { turn        = 0
+  , rushTarget  = Nothing
+  , pRanks      = Nothing
+  , pEdges      = M.empty
+  , pTargets    = M.empty
+  --, updateTurns = 0
   }
 
 type Log = [String]
@@ -372,12 +374,15 @@ bknapsack wvs c
 
 skynet :: GameState -> AIState -> ([Order], Log, AIState)
 skynet gs (AIState t rT Nothing pEs ts)
-  = planetRankRush gs (AIState t rT (Just (growthRank gs)) pEs ts)
-skynet gs@(GameState ps _ _) ai@(AIState turns _ _ _ _)
-  | turns < 900 = foldr sendShips ([], [], ai) ourPs
+  = skynet gs (AIState t rT (Just (growthRank gs)) pEs ts)
+skynet gs@(GameState ps _ _) ai@(AIState (Turns t) rt mPRs pEs _)
+  | t < 150 && updateTurns = foldr sendShips ([], [], flushedTargets) ourPs
+  | t < 150 = foldr sendShips ([], [], ai) ourPs
   | otherwise   = zergRush gs ai
   where
-    ourPs = M.toList(ourPlanets gs)
+    ourPs          = M.toList(ourPlanets gs)
+    updateTurns    = abs (sin (sqrt (fromIntegral (2 * (4 * t))))) <= 0.1
+    flushedTargets = (AIState (Turns t) rt mPRs pEs M.empty)
     sendShips :: (PlanetId, Planet) -> ([Order], Log, AIState)
               -> ([Order], Log, AIState)
     sendShips (pId, p) (ods, lg, cAi@(AIState t rT mPRs@(Just pRs) pEs ts))
@@ -390,7 +395,7 @@ skynet gs@(GameState ps _ _) ai@(AIState turns _ _ _ _)
           jWs   = if (isNothing mWs) then nWs else fromJust mWs
           mTs   = M.lookup pId ts
           nEWs  = filter (\w -> not (enemyPlanet (ps M.! (target w)))) jWs
-          sTs   = skynetTargets gs (if turns < 250 then nEWs else jWs) pRs
+          sTs   = skynetTargets gs (if t < 50 then nEWs else jWs) pRs
           rOds  = concatMap orderShips (fromJust mTs)
           nOds  = concatMap orderShips sTs
           nPEs  = (M.insert pId nWs pEs)
