@@ -297,6 +297,23 @@ findBestPlanet (GameState ps _ _) pRs
           mPR = M.lookup pId' pRs
           pR' = fromJust mPR
 
+initGrowthRanks :: GameState -> PlanetRanks
+initGrowthRanks g@(GameState ps _ _)
+  = M.fromList [ (pId, 1 / growth pId)
+                  | pId <- pIds ]
+    where
+      pIds = vertices g
+
+      growth :: PlanetId -> PlanetRank
+      growth i  = (\(Planet _ _ g) -> fromIntegral g)
+                                      (ps M.! i)
+
+growthRank :: GameState -> PlanetRanks
+growthRank g = growthRanks g !! 100
+
+growthRanks :: GameState -> [PlanetRanks]
+growthRanks g = iterate (nextPlanetRanks g) (initGrowthRanks g)
+
 --Get a list of targets and the percentage of ships to send to the target
 skynetTargets :: GameState -> [(WormholeId, Wormhole)] -> PlanetRanks
               -> [((WormholeId, Wormhole), PlanetRank)]
@@ -306,7 +323,7 @@ skynetTargets gs@(GameState ps _ _) ws pRanks
 --If there are enemy/neutral neighbours send ships to planets you can conquer
   | otherwise = map (\wp -> (wp, (fromIntegral (cost wp)) / v)) ts
   where
-    ePs = filter (\w -> not (ourPlanet (ps M.! (source w)))) ws
+    ePs = filter (\w -> not (ourPlanet (ps M.! (target w)))) ws
     (Planet _ (Ships s) _) = ps M.! (source (head ws))
     tPR = foldl (\x wp -> x + pRanks M.! (target wp)) (fromIntegral 0) ws
 
@@ -318,7 +335,7 @@ skynetTargets gs@(GameState ps _ _) ws pRanks
 --Get the cost of a wormhole to take it over this turn
     cost :: (WormholeId, Wormhole) -> Int
     cost wp@(wId, Wormhole _ _ (Turns turns))
-      | enemyPlanet p' = ((s + g * turns))
+      | enemyPlanet p' = (s + g * turns)
       | ourPlanet p'   = 0
       | otherwise      = s
       where
@@ -353,20 +370,24 @@ bknapsack wvs c
 
 skynet :: GameState -> AIState -> ([Order], Log, AIState)
 skynet gs (AIState t rT Nothing pEs)
-  = planetRankRush gs (AIState t rT (Just (planetRank gs)) pEs)
-skynet gs ai = foldr sendShips ([], [], ai) ourPs
+  = planetRankRush gs (AIState t rT (Just (growthRank gs)) pEs)
+skynet gs@(GameState ps _ _) ai@(AIState turns _ _ _)
+  | turns < 900 = foldr sendShips ([], [], ai) ourPs
+  | otherwise   = zergRush gs ai
   where
     ourPs = M.toList(ourPlanets gs)
     sendShips :: (PlanetId, Planet) -> ([Order], Log, AIState)
               -> ([Order], Log, AIState)
     sendShips (pId, p) (ods, lg, cAi@(AIState t rT (Just pRs) pEs))
-      | isNothing mWs = (nOds ++ ods, lg, nAi)
-      | otherwise     = (nOds' ++ ods, lg, cAi)
+      | turns < 250 = (nOds' ++ ods, lg, nAi)
+      | otherwise   = (nOds ++ ods, lg, nAi)
         where
           mWs   = M.lookup pId pEs
           nWs   = edgesFrom gs pId
-          nOds  = concatMap orderShips (skynetTargets gs nWs pRs)
-          nOds' = concatMap orderShips (skynetTargets gs (fromJust mWs) pRs)
+          jWs   = if (isNothing mWs) then nWs else fromJust mWs
+          nEWs  = filter (\w -> not (enemyPlanet (ps M.! (target w)))) jWs
+          nOds  = concatMap orderShips (skynetTargets gs nEWs pRs)
+          nOds' = concatMap orderShips (skynetTargets gs jWs pRs)
           nAi   = AIState t rT (Just pRs) (M.insert pId nWs pEs)
 
           orderShips :: ((WormholeId, Wormhole), PlanetRank) -> [Order]
