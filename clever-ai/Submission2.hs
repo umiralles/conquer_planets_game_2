@@ -47,6 +47,7 @@ data AIState = AIState
   , pEdges      :: Map PlanetId [(WormholeId, Wormhole)]
   , pWormholes  :: Map PlanetId [((WormholeId, Wormhole), PlanetRank)]
   , pTargets    :: [PlanetId]
+  , pathsFrom   :: Maybe (Map PlanetId [Path (WormholeId, Wormhole)])
   } deriving Generic
 
 initialState :: AIState
@@ -57,6 +58,7 @@ initialState = AIState
   , pEdges      = M.empty
   , pWormholes  = M.empty
   , pTargets    = []
+  , pathsFrom   = Nothing
   }
 
 type Log = [String]
@@ -123,11 +125,11 @@ attackFromAll targetId gs
 
 zergRush :: GameState -> AIState
          -> ([Order], Log, AIState)
-zergRush gs (AIState turns mPId mPRs m ts ts')
+zergRush gs (AIState turns mPId mPRs m ts ts' mPs)
  | mPId == Nothing || ourPlanet p
-    = ([], [], AIState turns (findEnemyPlanet gs) mPRs m ts ts')
+    = ([], [], AIState turns (findEnemyPlanet gs) mPRs m ts ts' mPs)
  | otherwise
-    = (attackFromAll pId gs, [], AIState turns mPId mPRs m ts ts')
+    = (attackFromAll pId gs, [], AIState turns mPId mPRs m ts ts' mPs)
    where
      pId = fromJust mPId
      p   = lookupPlanet pId gs
@@ -276,13 +278,13 @@ checkPlanetRanks = sum . M.elems
 
 planetRankRush :: GameState -> AIState
                -> ([Order], Log, AIState)
-planetRankRush gs (AIState t r Nothing m ts ts')
-  = planetRankRush gs (AIState t r (Just (planetRank gs)) m ts ts')
-planetRankRush gs (AIState turns mPId mPRs@(Just pRs) m ts ts')
+planetRankRush gs (AIState t r Nothing m ts ts' mPs)
+  = planetRankRush gs (AIState t r (Just (planetRank gs)) m ts ts' mPs)
+planetRankRush gs (AIState turns mPId mPRs@(Just pRs) m ts ts' mPs)
   | isNothing mPId || ourPlanet p
-     = ([], [], AIState turns (findBestPlanet gs pRs) mPRs m ts ts')
+     = ([], [], AIState turns (findBestPlanet gs pRs) mPRs m ts ts' mPs)
   | otherwise
-     = (attackFromAll pId gs, [], AIState turns mPId mPRs m ts ts')
+     = (attackFromAll pId gs, [], AIState turns mPId mPRs m ts ts' mPs)
     where
       pId = fromJust mPId
       p   = lookupPlanet pId gs
@@ -352,6 +354,8 @@ bknapsack :: forall name weight value .
   (Ix weight, Ord weight, Num weight,
     Ord value, Num value) =>
   [(name, weight, value)] -> weight -> (value, [name])
+bknapsack [] _
+  = (0, [])
 bknapsack wvs c
   = table ! (len - 1, c)
     where
@@ -376,28 +380,29 @@ bknapsack wvs c
             vn@(v'', _) = table ! ((i - 1), c)
 
 web :: GameState -> AIState -> ([Order], Log, AIState)
-web gs (AIState t rT Nothing pEs ts ts')
-  = web gs (AIState t rT (Just (planetRank gs)) pEs ts ts')
-web gs@(GameState ps _ _) ai@(AIState (Turns t) rt mPRs pEs _ ts')
+web gs (AIState t rT Nothing pEs ts ts' mPs)
+  = web gs (AIState t rT (Just (planetRank gs)) pEs ts ts' mPs)
+web gs@(GameState ps _ _) ai@(AIState (Turns t) rt mPRs pEs _ ts' mPs)
   | t < 150 && updateTurns = foldr sendShips ([], [], flushedTargets) ourPs
   | t < 150 = foldr sendShips ([], [], ai) ourPs
   | otherwise   = zergRush gs ai
   where
     ourPs          = M.toList(ourPlanets gs)
     updateTurns    = abs (sin (sqrt (fromIntegral (2 * (4 * t))))) <= 0.1
-    flushedTargets = (AIState (Turns t) rt mPRs pEs M.empty ts')
+    flushedTargets = (AIState (Turns t) rt mPRs pEs M.empty ts' mPs)
     sendShips :: (PlanetId, Planet) -> ([Order], Log, AIState)
               -> ([Order], Log, AIState)
-    sendShips (pId, p) (ods, lg, cAi@(AIState t rT mPRs@(Just pRs) pEs ts ts'))
+    sendShips (pId, p) (ods, lg, cAi@(AIState t rT mPRs pEs ts ts' mPs))
       | isJust mTs && not (null rOds) = (rOds ++ ods, lg, cAi)
-      | isNothing mWs        = (nOds ++ ods, lg, AIState t rT mPRs nPEs nTs ts')
-      | otherwise            = (nOds ++ ods, lg, AIState t rT mPRs pEs nTs ts')
+      | isNothing mWs    = (nOds ++ ods, lg, AIState t rT mPRs nPEs nTs ts' mPs)
+      | otherwise        = (nOds ++ ods, lg, AIState t rT mPRs pEs nTs ts' mPs)
         where
           mWs   = M.lookup pId pEs
           nWs   = edgesFrom gs pId
           jWs   = if (isNothing mWs) then nWs else fromJust mWs
           mTs   = M.lookup pId ts
           nEWs  = filter (\w -> not (enemyPlanet (ps M.! (target w)))) jWs
+          pRs   = fromJust mPRs
           sTs   = webTargets gs (if t < 50 then nEWs else jWs) pRs
           rOds  = concatMap orderShips (fromJust mTs)
           nOds  = concatMap orderShips sTs
@@ -415,11 +420,12 @@ web gs@(GameState ps _ _) ai@(AIState (Turns t) rt mPRs pEs _ ts')
 weightCost :: Planet -> Turns -> Ships
 weightCost p@(Planet _ (Ships s) (Growth g)) (Turns t)
   | enemyPlanet p = Ships (s + g * t)
-  | ourPlanet p   = 0
+  | ourPlanet p   = Ships 0
   | otherwise     = Ships s
 
-attackMultiple :: [PlanetId] -> GameState -> [Order]
-attackMultiple tIds gs@(GameState ps _ _)
+attackMultiple :: [PlanetId] -> GameState
+              -> Map PlanetId [Path (WormholeId, Wormhole)] -> [Order]
+attackMultiple tIds gs@(GameState ps _ _) mapPaths
   = concatMap attackMultiple' oPs
     where
       oPs = M.toList (ourPlanets gs)
@@ -429,41 +435,41 @@ attackMultiple tIds gs@(GameState ps _ _)
         | null paths = []
         | otherwise  = concatMap sendShips paths
         where
-          mPaths = shortestPaths gs sourceId
-          paths = foldr attackOne [] tIds
-          lenP  = length paths
-
-          attackOne :: PlanetId -> [Path (WormholeId, Wormhole)]
-                    -> [Path (WormholeId, Wormhole)]
-          attackOne tId paths
-            | isNothing mPath = paths
-            | otherwise       = (fromJust mPath : paths)
-              where
-                mPath = shortestPath sourceId tId gs
+          mPaths = mapPaths M.! sourceId
+          paths  = filter (\path -> elem (target path) tIds) mPaths
+          lenP   = length paths
 
           sendShips :: Path (WormholeId, Wormhole) -> [Order]
           sendShips path@(Path _ ws)
             = send wId (Just sShips) gs
               where
-                sShips                   = Ships (ships `div` lenP)
-                (wId, w)                 = last ws
-                Planet _ (Ships ships) _ = ps M.! (source path)
+                sShips                   = Ships (s `div` lenP)
+                (wId, _)                 = last ws
 
 skynet :: GameState -> AIState -> ([Order], Log, AIState)
-skynet gs (AIState t rT Nothing pEs tWs ts)
-  = skynet gs (AIState t rT (Just (planetRank gs)) pEs tWs ts)
-skynet gs@(GameState ps _ _) ai@(AIState (Turns t) rT (Just pRs) pEs tWs ts)
-  | t > 900                          = zergRush gs ai
+skynet gs (AIState t rT Nothing pEs tWs ts mPs)
+  = skynet gs (AIState t rT (Just (planetRank gs)) pEs tWs ts mPs)
+skynet gs (AIState t rT pRs pEs tWs ts Nothing)
+  = skynet gs (AIState t rT pRs pEs tWs ts (Just nPs))
+    where
+      nPs = foldr insertShortestPaths M.empty (vertices gs)
+
+      insertShortestPaths :: PlanetId
+                          -> Map PlanetId [Path (WormholeId, Wormhole)]
+                          -> Map PlanetId [Path (WormholeId, Wormhole)]
+      insertShortestPaths pId m = M.insert pId (shortestPaths gs pId) m
+skynet gs@(GameState ps _ _) ai@(AIState (Turns t) rT (Just pRs) pEs tWs ts mPs)
   | null ts || null ods || null ods' = zergRush gs nAi
   | t `mod` updateT == 0             = (ods, [], nAi)
   | otherwise                        = (ods', [], ai)
     where
-      updateT   = 50
-      sack      = map inputKnapsack (M.toList (M.filter (not . ourPlanet) ps))
-      (_, tgts) = bknapsack sack totalShips
-      nAi       = AIState (Turns t) rT (Just pRs) pEs tWs tgts
-      ods       = attackMultiple tgts gs
-      ods'      = attackMultiple ts gs
+      updateT  = 10
+      sack     = map inputKnapsack (M.toList (M.filter (not . ourPlanet) ps))
+      (_, nTs) = bknapsack sack totalShips
+      nAi      = AIState (Turns t) rT (Just pRs) pEs tWs nTs mPs
+      jPs      = fromJust mPs
+      ods      = attackMultiple nTs gs jPs
+      ods'     = attackMultiple ts gs jPs
 
       totalShips :: Ships
       totalShips
