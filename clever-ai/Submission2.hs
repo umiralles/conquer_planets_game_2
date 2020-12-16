@@ -460,8 +460,7 @@ skynet gs (AIState t rT pRs pEs tWs ts Nothing)
       insertShortestPaths pId m = M.insert pId (shortestPaths gs pId) m
 skynet gs@(GameState ps _ _) ai@(AIState (Turns t) rT (Just pRs) pEs tWs ts mPs)
   | null ts || null ods || null ods' = zergRush gs nAi
-  | t `mod` updateT == 0             = (ods, [], nAi)
-  | otherwise                        = (ods', [], ai)
+  | otherwise                        = (ods, [], nAi)
     where
       updateT  = 10
       sack     = map inputKnapsack (M.toList (M.filter (not . ourPlanet) ps))
